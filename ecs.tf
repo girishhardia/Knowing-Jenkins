@@ -56,11 +56,13 @@ resource "aws_lb" "main" {
 # The target group for the load balancer.
 resource "aws_lb_target_group" "app" {
   name        = "${var.project_name}-tg"
-  port        = 80
+  port        = 80 # The ALB listens on port 80
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
   target_type = "ip" # Required for Fargate
 
+  # The health check tells the ALB if our container is healthy.
+  # It will make requests to the root path ("/") and expect a 200 OK response.
   health_check {
     path                = "/"
     protocol            = "HTTP"
@@ -97,9 +99,9 @@ resource "aws_security_group" "ecs_tasks_sg" {
   description = "Allow inbound traffic from the ALB to the ECS tasks"
   vpc_id      = aws_vpc.main.id
 
-  # Only allow inbound traffic from our load balancer's security group
+  # Only allow inbound traffic from our load balancer's security group on the Flask port.
   ingress {
-    from_port       = 5000 # The port our Flask app runs on
+    from_port       = 5000
     to_port         = 5000
     protocol        = "tcp"
     security_groups = [aws_security_group.lb_sg.id]
@@ -150,8 +152,9 @@ resource "aws_ecs_task_definition" "app" {
   # The container definition.
   container_definitions = jsonencode([{
     name      = "${var.project_name}-container"
-    # This is a placeholder image. We will update this later.
-    image     = "nginx:latest"
+    # *** THIS IS THE IMPORTANT CHANGE ***
+    # Replace the value below with your actual ECR repository URL + ":latest"
+    image     = "343218205096.dkr.ecr.us-east-1.amazonaws.com/flask-ecs-app-repo:latest"
     cpu       = 256
     memory    = 512
     essential = true
@@ -170,6 +173,8 @@ resource "aws_ecs_service" "main" {
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = 1 # Run one instance of our task
   launch_type     = "FARGATE"
+  # This ensures that if we update the task definition, a new deployment is forced.
+  force_new_deployment = true
 
   network_configuration {
     subnets         = aws_subnet.private[*].id # Run tasks in private subnets
